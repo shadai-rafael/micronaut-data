@@ -107,7 +107,7 @@ public final class DefaultStoredQuery<E, RT> extends DefaultStoredDataOperation<
         this.hasResultConsumer = method.stringValue(DATA_METHOD_ANN_NAME, "sqlMappingFunction").isPresent();
         this.isNumericPlaceHolder = method
                 .classValue(RepositoryConfiguration.class, "queryBuilder")
-                .map(c -> c == SqlQueryBuilder.class).orElse(false);
+                .map(c -> SqlQueryBuilder.class.isAssignableFrom(c)).orElse(false);
         this.hasPageable = method.stringValue(DATA_METHOD_ANN_NAME, TypeRole.PAGEABLE).isPresent() ||
                 method.stringValue(DATA_METHOD_ANN_NAME, TypeRole.SORT).isPresent() ||
                 method.intValue(DATA_METHOD_ANN_NAME, META_MEMBER_PAGE_SIZE).orElse(-1) > -1;

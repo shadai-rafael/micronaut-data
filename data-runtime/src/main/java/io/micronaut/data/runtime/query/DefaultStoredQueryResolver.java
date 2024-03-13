@@ -147,7 +147,7 @@ public abstract class DefaultStoredQueryResolver implements StoredQueryResolver 
             @Override
             public boolean useNumericPlaceholders() {
                 return annotationMetadata.classValue(RepositoryConfiguration.class, "queryBuilder")
-                        .map(c -> c == SqlQueryBuilder.class).orElse(false);
+                        .map(c -> SqlQueryBuilder.class.isAssignableFrom(c)).orElse(false);
             }
 
             @Override
@@ -247,7 +247,7 @@ public abstract class DefaultStoredQueryResolver implements StoredQueryResolver 
             public boolean useNumericPlaceholders() {
                 return annotationMetadata
                         .classValue(RepositoryConfiguration.class, "queryBuilder")
-                        .map(c -> c == SqlQueryBuilder.class).orElse(false);
+                        .map(c -> SqlQueryBuilder.class.isAssignableFrom(c)).orElse(false);
             }
 
             @Override

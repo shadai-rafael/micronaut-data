@@ -39,6 +39,7 @@ import io.micronaut.data.model.PersistentPropertyPath;
 import io.micronaut.data.model.query.JoinPath;
 import io.micronaut.data.model.query.QueryModel;
 import io.micronaut.data.model.query.QueryParameter;
+import io.micronaut.data.model.query.builder.QueryBuilder;
 import io.micronaut.data.model.query.builder.QueryResult;
 import io.micronaut.data.model.query.builder.sql.Dialect;
 import io.micronaut.data.model.query.builder.sql.SqlQueryBuilder;
@@ -163,8 +164,10 @@ public abstract class AbstractSqlRepositoryOperations<RS, PS, Exc extends Except
             String targetDs = beanDefinition.stringValue(Repository.class).orElse(null);
             Class<Object> beanType = beanDefinition.getBeanType();
             if (targetDs == null || targetDs.equalsIgnoreCase(dataSourceName)) {
-                SqlQueryBuilder queryBuilder = new SqlQueryBuilder(beanDefinition.getAnnotationMetadata());
-                queryBuilders.put(beanType, queryBuilder);
+                QueryBuilder queryBuilder = QueryBuilder.newQueryBuilder(beanDefinition.getAnnotationMetadata());
+                if (queryBuilder instanceof SqlQueryBuilder sqlQueryBuilder) {
+                    queryBuilders.put(beanType, sqlQueryBuilder);
+                }
             } else {
                 repositoriesWithHardcodedDataSource.put(beanType, targetDs);
             }

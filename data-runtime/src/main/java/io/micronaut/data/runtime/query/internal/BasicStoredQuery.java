@@ -146,7 +146,7 @@ public class BasicStoredQuery<E, R> implements StoredQuery<E, R> {
     @Override
     public boolean useNumericPlaceholders() {
         return annotationMetadata.classValue(RepositoryConfiguration.class, "queryBuilder")
-                .map(c -> c == SqlQueryBuilder.class).orElse(false);
+                .map(c -> SqlQueryBuilder.class.isAssignableFrom(c)).orElse(false);
     }
 
     @Override
