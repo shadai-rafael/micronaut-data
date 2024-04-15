@@ -1282,6 +1282,12 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                     int expected = (int) entities.stream().filter(d -> !d.vetoed).count();
                     checkOptimisticLocking(expected, rowsUpdated);
                 }
+            } catch (SQLException e) {
+                Throwable throwable = handleSqlException(e, storedQuery.getDialect());
+                if (throwable instanceof DataAccessException dataAccessException) {
+                    throw dataAccessException;
+                }
+                throw new DataAccessException("Error executing SQL UPDATE: " + e.getMessage(), e);
             }
         }
 
