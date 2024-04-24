@@ -16,6 +16,8 @@
 package io.micronaut.data.runtime.operations.internal.sql;
 
 import io.micronaut.core.annotation.NonNull;
+import io.micronaut.core.annotation.Nullable;
+import io.micronaut.data.exceptions.DataAccessException;
 import io.micronaut.data.model.query.builder.sql.Dialect;
 
 import java.sql.SQLException;
@@ -36,12 +38,12 @@ public interface SqlExceptionMapper {
     Dialect getDialect();
 
     /**
-     * Maps {@link SQLException} to custom exception.
-     * In some cases original exception will be returned if mapper was not mapped it to the custom exception.
+     * Maps {@link SQLException} to custom {@link DataAccessException}.
+     * In case when mapper is not able {@link SQLException} to {@link DataAccessException} then will return null.
      *
-     * @param sqlException The SQL exception
-     * @return mapped exception from {@link SQLException}
+     * @param sqlException    The SQL exception
+     * @return mapped exception from {@link SQLException} or null if mapper cannot map {@link SQLException} to {@link DataAccessException}
      */
-    @NonNull
-    Throwable mapSqlException(SQLException sqlException);
+    @Nullable
+    DataAccessException mapSqlException(@NonNull SQLException sqlException);
 }

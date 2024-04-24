@@ -27,7 +27,7 @@ class PostgresTransactionsSpec extends AbstractJdbcTransactionSpec implements Po
 
     @Override
     boolean cannotInsertInReadOnlyTx(Exception e) {
-        assert e.cause.message == "ERROR: cannot execute INSERT in a read-only transaction"
+        assert e.cause.message == "Error executing SQL Query: ERROR: cannot execute INSERT in a read-only transaction"
         return true
     }
 }

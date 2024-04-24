@@ -86,6 +86,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -582,19 +583,23 @@ public abstract class AbstractSqlRepositoryOperations<RS, PS, Exc extends Except
     }
 
     /**
-     * Handles SQL exception, used in context of update but could be used elsewhere.
+     * Handles exception throw during statement execute (mainly {@link SQLException}, used in context of update but could be used elsewhere.
      * It can throw custom exception based on the {@link SQLException}.
      *
-     * @param sqlException the SQL exception
+     * @param exception the exception to be mapped
      * @param dialect the SQL dialect
-     * @return custom exception based on {@link SQLException} that was thrown or that same
-     * exception if nothing specific was about it
+     * @param fallbackMapper the fallback mapper that maps exception to {@link DataAccessException}
+     * @return custom exception based on exception (mainly {@link SQLException}) that was thrown or {@link DataAccessException}
+     * as provided by the fallbackMapper
      */
-    protected Throwable handleSqlException(SQLException sqlException, Dialect dialect) {
-        if (sqlExceptionMappers.containsKey(dialect)) {
-            return sqlExceptionMappers.get(dialect).mapSqlException(sqlException);
+    protected DataAccessException handleException(Exception exception, Dialect dialect, Function<Exception, DataAccessException> fallbackMapper) {
+        if (exception instanceof SQLException sqlException && sqlExceptionMappers.containsKey(dialect)) {
+            DataAccessException dataAccessException = sqlExceptionMappers.get(dialect).mapSqlException(sqlException);
+            if (dataAccessException != null) {
+                return dataAccessException;
+            }
         }
-        return sqlException;
+        return fallbackMapper.apply(exception);
     }
 
     /**

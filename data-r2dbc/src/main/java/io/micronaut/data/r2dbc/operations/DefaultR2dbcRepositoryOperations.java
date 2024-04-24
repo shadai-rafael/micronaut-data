@@ -276,7 +276,7 @@ final class DefaultR2dbcRepositoryOperations extends AbstractSqlRepositoryOperat
         try {
             assocEntityOp.execute();
         } catch (Exception e1) {
-            throw new DataAccessException("SQL error executing INSERT: " + e1.getMessage(), e1);
+            throw handleException(e1, ctx.dialect, exception -> new DataAccessException("SQL error executing INSERT: " + exception.getMessage(), exception));
         }
         return assocEntityOp.getEntity().then();
     }
@@ -293,7 +293,7 @@ final class DefaultR2dbcRepositoryOperations extends AbstractSqlRepositoryOperat
         try {
             assocEntitiesOp.execute();
         } catch (Exception e1) {
-            throw new DataAccessException("SQL error executing INSERT: " + e1.getMessage(), e1);
+            throw handleException(e1, ctx.dialect, exception -> new DataAccessException("SQL error executing INSERT: " + exception.getMessage(), exception));
         }
         return assocEntitiesOp.getEntities().then();
     }
@@ -393,7 +393,7 @@ final class DefaultR2dbcRepositoryOperations extends AbstractSqlRepositoryOperat
         return isSupportsBatchInsert(persistentEntity, context.dialect);
     }
 
-    private static <T> Flux<T> executeAndMapEachRow(Statement statement, Function<Row, T> mapper) {
+    private <T> Flux<T> executeAndMapEachRow(Statement statement, Function<Row, T> mapper) {
         return Flux.from(statement.execute())
             .flatMap(result -> Flux.from(result.map((row, rowMetadata) -> mapper.apply(row))));
     }
@@ -432,8 +432,7 @@ final class DefaultR2dbcRepositoryOperations extends AbstractSqlRepositoryOperat
     private <T> Function<? super Throwable, ? extends Publisher<? extends T>> errorHandler(Dialect dialect) {
         return throwable -> {
             if (throwable.getCause() instanceof SQLException sqlException) {
-                Throwable newThrowable = handleSqlException(sqlException, dialect);
-                return Mono.error(newThrowable);
+                return Mono.error(handleException(sqlException, dialect, err -> new DataAccessException("Error executing SQL Query: " + err.getMessage(), err)));
             }
             return Mono.error(throwable);
         };

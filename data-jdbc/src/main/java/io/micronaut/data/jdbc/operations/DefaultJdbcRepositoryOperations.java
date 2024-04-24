@@ -277,8 +277,8 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
         SqlStoredQuery<Object, ?> storedQuery = resolveSqlInsertAssociation(ctx.repositoryType, runtimeAssociation, persistentEntity, value);
         try {
             new JdbcEntityOperations<>(ctx, childPersistentEntity, child, storedQuery).execute();
-        } catch (SQLException e) {
-            throw new DataAccessException("SQL error executing INSERT: " + e.getMessage(), e);
+        } catch (Exception e) {
+            throw handleException(e, ctx.dialect, exception -> new DataAccessException("SQL error executing INSERT: " + exception.getMessage(), exception));
         }
     }
 
@@ -292,8 +292,8 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
             JdbcEntitiesOperations<Object> assocOp = new JdbcEntitiesOperations<>(ctx, childPersistentEntity, child, storedQuery);
             assocOp.veto(ctx.persisted::contains);
             assocOp.execute();
-        } catch (SQLException e) {
-            throw new DataAccessException("SQL error executing INSERT: " + e.getMessage(), e);
+        } catch (Exception e) {
+            throw handleException(e, ctx.dialect, exception -> new DataAccessException("SQL error executing INSERT: " + exception.getMessage(), exception));
         }
     }
 
@@ -357,7 +357,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                 return result;
             }
         } catch (SQLException e) {
-            throw new DataAccessException("Error executing SQL Query: " + e.getMessage(), e);
+            throw handleException(e, preparedQuery.getDialect(), sqlException -> new DataAccessException("Error executing SQL Query: " + sqlException.getMessage(), sqlException));
         }
     }
 
@@ -366,7 +366,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
             preparedQuery.bindParameters(new JdbcParameterBinder(connection, ps, preparedQuery));
             return findAll(preparedQuery, ps);
         } catch (SQLException e) {
-            throw new DataAccessException("Error executing SQL Query: " + e.getMessage(), e);
+            throw handleException(e, preparedQuery.getDialect(), sqlException -> new DataAccessException("Error executing SQL Query: " + sqlException.getMessage(), sqlException));
         }
     }
 
@@ -408,8 +408,8 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
     @Override
     public <T> boolean exists(@NonNull PreparedQuery<T, Boolean> pq) {
         return executeRead(connection -> {
+            SqlPreparedQuery<T, Boolean> preparedQuery = getSqlPreparedQuery(pq);
             try {
-                SqlPreparedQuery<T, Boolean> preparedQuery = getSqlPreparedQuery(pq);
                 try (PreparedStatement ps = prepareStatement(connection::prepareStatement, preparedQuery, false, true)) {
                     preparedQuery.bindParameters(new JdbcParameterBinder(connection, ps, preparedQuery));
                     try (ResultSet rs = ps.executeQuery()) {
@@ -417,7 +417,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                     }
                 }
             } catch (SQLException e) {
-                throw new DataAccessException("Error executing SQL query: " + e.getMessage(), e);
+                throw handleException(e, preparedQuery.getDialect(), sqlException -> new DataAccessException("Error executing SQL query: " + sqlException.getMessage(), sqlException));
             }
         });
     }
@@ -439,8 +439,8 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
         try {
             ps = prepareStatement(connection::prepareStatement, preparedQuery, false, false);
             preparedQuery.bindParameters(new JdbcParameterBinder(connection, ps, preparedQuery));
-        } catch (Exception e) {
-            throw new DataAccessException("SQL Error preparing Query: " + e.getMessage(), e);
+        } catch (SQLException e) {
+            throw handleException(e, preparedQuery.getDialect(), sqlException -> new DataAccessException("SQL Error preparing Query: " + sqlException.getMessage(), sqlException));
         }
 
         ResultSet openedRs = null;
@@ -462,7 +462,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                         }
                         return manyMapper.getResult().stream();
                     } finally {
-                        closeResultSet(connection, ps, rs, finished, closeConnection);
+                        closeResultSet(connection, ps, rs, preparedQuery.getDialect(), finished, closeConnection);
                     }
                 }
             }
@@ -482,20 +482,20 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                         }
                         action.accept(o);
                     } else {
-                        closeResultSet(connection, ps, rs, finished, closeConnection);
+                        closeResultSet(connection, ps, rs, preparedQuery.getDialect(), finished, closeConnection);
                     }
                     return hasNext;
                 }
             };
             return StreamSupport.stream(spliterator, false)
-                .onClose(() -> closeResultSet(connection, ps, rs, finished, closeConnection));
-        } catch (Exception e) {
-            closeResultSet(connection, ps, openedRs, finished, closeConnection);
-            throw new DataAccessException("SQL Error executing Query: " + e.getMessage(), e);
+                .onClose(() -> closeResultSet(connection, ps, rs, preparedQuery.getDialect(), finished, closeConnection));
+        } catch (SQLException e) {
+            closeResultSet(connection, ps, openedRs, preparedQuery.getDialect(), finished, closeConnection);
+            throw handleException(e, preparedQuery.getDialect(), sqlException -> new DataAccessException("SQL Error executing Query: " + sqlException.getMessage(), sqlException));
         }
     }
 
-    private void closeResultSet(Connection connection, PreparedStatement ps, ResultSet rs, AtomicBoolean finished, boolean closeConnection) {
+    private void closeResultSet(Connection connection, PreparedStatement ps, ResultSet rs, Dialect dialect, AtomicBoolean finished, boolean closeConnection) {
         if (finished.compareAndSet(false, true)) {
             try {
                 if (rs != null) {
@@ -508,7 +508,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                     connection.close();
                 }
             } catch (SQLException e) {
-                throw new DataAccessException("Error closing JDBC result stream: " + e.getMessage(), e);
+                throw handleException(e, dialect, sqlException -> new DataAccessException("Error closing JDBC result stream: " + sqlException.getMessage(), sqlException));
             }
         }
     }
@@ -535,11 +535,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                 }
                 return Optional.of(result);
             } catch (SQLException e) {
-                Throwable throwable = handleSqlException(e, preparedQuery.getDialect());
-                if (throwable instanceof DataAccessException dataAccessException) {
-                    throw dataAccessException;
-                }
-                throw new DataAccessException("Error executing SQL UPDATE: " + e.getMessage(), e);
+                throw handleException(e, preparedQuery.getDialect(), sqlException -> new DataAccessException("Error executing SQL UPDATE: " + sqlException.getMessage(), sqlException));
             }
         });
     }
@@ -555,11 +551,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                     return findAll(connection, preparedQuery, false);
                 }
             } catch (SQLException e) {
-                Throwable throwable = handleSqlException(e, preparedQuery.getDialect());
-                if (throwable instanceof DataAccessException dataAccessException) {
-                    throw dataAccessException;
-                }
-                throw new DataAccessException("Error executing SQL UPDATE: " + e.getMessage(), e);
+                throw handleException(e, preparedQuery.getDialect(), sqlException -> new DataAccessException("Error executing SQL UPDATE: " + sqlException.getMessage(), sqlException));
             }
         });
     }
@@ -1142,11 +1134,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                     checkOptimisticLocking(1, rowsUpdated);
                 }
             } catch (SQLException e) {
-                Throwable throwable = handleSqlException(e, ctx.dialect);
-                if (throwable instanceof DataAccessException dataAccessException) {
-                    throw dataAccessException;
-                }
-                throw e;
+                throw handleException(e, ctx.dialect, sqlException -> new DataAccessException("Error executing SQL Query: " + sqlException.getMessage(), sqlException));
             }
         }
 
@@ -1160,7 +1148,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                 rowsUpdated = result.size();
                 entity = result.iterator().next();
             } catch (SQLException e) {
-                throw new DataAccessException("Error executing SQL Query: " + e.getMessage(), e);
+                throw handleException(e, ctx.dialect, sqlException -> new DataAccessException("Error executing SQL Query: " + sqlException.getMessage(), sqlException));
             }
         }
 
@@ -1287,11 +1275,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
                     checkOptimisticLocking(expected, rowsUpdated);
                 }
             } catch (SQLException e) {
-                Throwable throwable = handleSqlException(e, storedQuery.getDialect());
-                if (throwable instanceof DataAccessException dataAccessException) {
-                    throw dataAccessException;
-                }
-                throw new DataAccessException("Error executing SQL UPDATE: " + e.getMessage(), e);
+                throw handleException(e, storedQuery.getDialect(), sqlException -> new DataAccessException("Error executing SQL UPDATE: " + sqlException.getMessage(), sqlException));
             }
         }
 
