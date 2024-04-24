@@ -23,12 +23,12 @@ import io.micronaut.core.annotation.Internal;
 import io.micronaut.core.annotation.NonNull;
 import io.micronaut.core.beans.BeanProperty;
 import io.micronaut.core.reflect.ReflectionUtils;
+import io.micronaut.core.util.CollectionUtils;
 import io.micronaut.data.annotation.AutoPopulated;
 import io.micronaut.data.annotation.MappedProperty;
 import io.micronaut.data.annotation.Repository;
 import io.micronaut.data.annotation.TypeRole;
 import io.micronaut.data.exceptions.DataAccessException;
-import io.micronaut.data.exceptions.OptimisticLockException;
 import io.micronaut.data.model.Association;
 import io.micronaut.data.model.DataType;
 import io.micronaut.data.model.JsonDataType;
@@ -72,6 +72,7 @@ import io.micronaut.inject.annotation.AnnotationMetadataHierarchy;
 import io.micronaut.inject.qualifiers.Qualifiers;
 import io.micronaut.json.JsonMapper;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.sql.SQLException;
@@ -108,6 +109,9 @@ public abstract class AbstractSqlRepositoryOperations<RS, PS, Exc extends Except
         HintsCapableRepository {
 
     protected static final Logger QUERY_LOG = DataSettings.QUERY_LOG;
+
+    private static final Logger LOG = LoggerFactory.getLogger(AbstractSqlRepositoryOperations.class);
+
     protected final String dataSourceName;
     @SuppressWarnings("WeakerAccess")
     protected final ResultReader<RS, String> columnNameResultSetReader;
@@ -118,6 +122,7 @@ public abstract class AbstractSqlRepositoryOperations<RS, PS, Exc extends Except
     protected final JsonMapper jsonMapper;
     protected final SqlJsonColumnMapperProvider<RS> sqlJsonColumnMapperProvider;
     protected final Map<Class, SqlQueryBuilder> queryBuilders = new HashMap<>(10);
+    protected final Map<Dialect, SqlExceptionMapper> sqlExceptionMappers = new HashMap<>(Dialect.values().length);
     protected final Map<Class, String> repositoriesWithHardcodedDataSource = new HashMap<>(10);
     private final Map<QueryKey, SqlStoredQuery> entityInserts = new ConcurrentHashMap<>(10);
     private final Map<QueryKey, SqlStoredQuery> entityUpdates = new ConcurrentHashMap<>(10);
@@ -137,6 +142,7 @@ public abstract class AbstractSqlRepositoryOperations<RS, PS, Exc extends Except
      * @param attributeConverterRegistry   The attribute converter registry
      * @param jsonMapper                   The JSON mapper
      * @param sqlJsonColumnMapperProvider  The SQL JSON column mapper provider
+     * @param sqlExceptionMapperList       The SQL exception mapper list
      */
     protected AbstractSqlRepositoryOperations(
             String dataSourceName,
@@ -149,7 +155,8 @@ public abstract class AbstractSqlRepositoryOperations<RS, PS, Exc extends Except
             DataConversionService conversionService,
             AttributeConverterRegistry attributeConverterRegistry,
             JsonMapper jsonMapper,
-            SqlJsonColumnMapperProvider<RS> sqlJsonColumnMapperProvider) {
+            SqlJsonColumnMapperProvider<RS> sqlJsonColumnMapperProvider,
+            List<SqlExceptionMapper> sqlExceptionMapperList) {
         super(dateTimeProvider, runtimeEntityRegistry, conversionService, attributeConverterRegistry);
         this.dataSourceName = dataSourceName;
         this.columnNameResultSetReader = columnNameResultSetReader;
@@ -157,6 +164,15 @@ public abstract class AbstractSqlRepositoryOperations<RS, PS, Exc extends Except
         this.preparedStatementWriter = preparedStatementWriter;
         this.jsonMapper = jsonMapper;
         this.sqlJsonColumnMapperProvider = sqlJsonColumnMapperProvider;
+        if (CollectionUtils.isNotEmpty(sqlExceptionMapperList)) {
+            for (SqlExceptionMapper sqlExceptionMapper : sqlExceptionMapperList) {
+                Dialect dialect = sqlExceptionMapper.getDialect();
+                if (sqlExceptionMappers.containsKey(dialect)) {
+                    LOG.warn("More than one SqlExceptionMapper defined for dialect: {}. Only one will be used.", sqlExceptionMapper.getDialect());
+                }
+                sqlExceptionMappers.put(dialect, sqlExceptionMapper);
+            }
+        }
         Collection<BeanDefinition<Object>> beanDefinitions = beanContext
                 .getBeanDefinitions(Object.class, Qualifiers.byStereotype(Repository.class));
         for (BeanDefinition<Object> beanDefinition : beanDefinitions) {
@@ -574,9 +590,9 @@ public abstract class AbstractSqlRepositoryOperations<RS, PS, Exc extends Except
      * @return custom exception based on {@link SQLException} that was thrown or that same
      * exception if nothing specific was about it
      */
-    protected static Throwable handleSqlException(SQLException sqlException, Dialect dialect) {
-        if (dialect == Dialect.ORACLE) {
-            return OracleSqlExceptionHandler.handleSqlException(sqlException);
+    protected Throwable handleSqlException(SQLException sqlException, Dialect dialect) {
+        if (sqlExceptionMappers.containsKey(dialect)) {
+            return sqlExceptionMappers.get(dialect).mapSqlException(sqlException);
         }
         return sqlException;
     }
@@ -757,31 +773,6 @@ public abstract class AbstractSqlRepositoryOperations<RS, PS, Exc extends Except
                 throw new IllegalStateException("Not supported!");
             }
         };
-    }
-
-    /**
-     * Handles {@link SQLException} for Oracle update commands. Can add more logic if needed, but this
-     * now handles only optimistic locking exception for given error code.
-     */
-    private static final class OracleSqlExceptionHandler {
-        private static final int JSON_VIEW_ETAG_NOT_MATCHING_ERROR = 42699;
-
-        /**
-         * Handles SQL exception for Oracle dialect, used in context of update but could be used elsewhere.
-         * It can throw custom exception based on the {@link SQLException}.
-         * Basically throws {@link OptimisticLockException} if error thrown is matching expected error code
-         * that is used to represent ETAG not matching when updating Json View.
-         *
-         * @param sqlException the SQL exception
-         * @return custom exception based on {@link SQLException} that was thrown or that same
-         * exception if nothing specific was about it
-         */
-        static Throwable handleSqlException(SQLException sqlException) {
-            if (sqlException.getErrorCode() == JSON_VIEW_ETAG_NOT_MATCHING_ERROR) {
-                return new OptimisticLockException("ETAG did not match when updating record: " + sqlException.getMessage(), sqlException);
-            }
-            return sqlException;
-        }
     }
 
     /**

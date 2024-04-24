@@ -88,6 +88,7 @@ import io.micronaut.data.runtime.operations.internal.OperationContext;
 import io.micronaut.data.runtime.operations.internal.SyncCascadeOperations;
 import io.micronaut.data.runtime.operations.internal.query.BindableParametersStoredQuery;
 import io.micronaut.data.runtime.operations.internal.sql.AbstractSqlRepositoryOperations;
+import io.micronaut.data.runtime.operations.internal.sql.SqlExceptionMapper;
 import io.micronaut.data.runtime.operations.internal.sql.SqlJsonColumnMapperProvider;
 import io.micronaut.data.runtime.operations.internal.sql.SqlPreparedQuery;
 import io.micronaut.data.runtime.operations.internal.sql.SqlStoredQuery;
@@ -164,6 +165,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
      * @param dataSourceName              The data source name
      * @param jdbcConfiguration           The jdbcConfiguration
      * @param dataSource                  The datasource
+     * @param connectionOperations        The connection operations
      * @param transactionOperations       The JDBC operations for the data source
      * @param executorService             The executor service
      * @param beanContext                 The bean context
@@ -175,26 +177,27 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
      * @param schemaHandler               The schema handler
      * @param jsonMapper                  The JSON mapper
      * @param sqlJsonColumnMapperProvider The SQL JSON column mapper provider
-     * @param connectionOperations
+     * @param sqlExceptionMapperList      The SQL exception mapper list
      */
     @Internal
     @SuppressWarnings("ParameterNumber")
     DefaultJdbcRepositoryOperations(@Parameter String dataSourceName,
-                                              @Parameter DataJdbcConfiguration jdbcConfiguration,
-                                              DataSource dataSource,
-                                              @Parameter ConnectionOperations<Connection> connectionOperations,
-                                              @Parameter TransactionOperations<Connection> transactionOperations,
-                                              @Named("io") @Nullable ExecutorService executorService,
-                                              BeanContext beanContext,
-                                              @NonNull DateTimeProvider dateTimeProvider,
-                                              RuntimeEntityRegistry entityRegistry,
-                                              DataConversionService conversionService,
-                                              AttributeConverterRegistry attributeConverterRegistry,
-                                              @Nullable
+                                    @Parameter DataJdbcConfiguration jdbcConfiguration,
+                                    DataSource dataSource,
+                                    @Parameter ConnectionOperations<Connection> connectionOperations,
+                                    @Parameter TransactionOperations<Connection> transactionOperations,
+                                    @Named("io") @Nullable ExecutorService executorService,
+                                    BeanContext beanContext,
+                                    @NonNull DateTimeProvider dateTimeProvider,
+                                    RuntimeEntityRegistry entityRegistry,
+                                    DataConversionService conversionService,
+                                    AttributeConverterRegistry attributeConverterRegistry,
+                                    @Nullable
                                               SchemaTenantResolver schemaTenantResolver,
-                                              JdbcSchemaHandler schemaHandler,
-                                              @Nullable JsonMapper jsonMapper,
-                                              SqlJsonColumnMapperProvider<ResultSet> sqlJsonColumnMapperProvider) {
+                                    JdbcSchemaHandler schemaHandler,
+                                    @Nullable JsonMapper jsonMapper,
+                                    SqlJsonColumnMapperProvider<ResultSet> sqlJsonColumnMapperProvider,
+                                    List<SqlExceptionMapper> sqlExceptionMapperList) {
         super(
             dataSourceName,
             new ColumnNameResultSetReader(conversionService),
@@ -206,7 +209,8 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
             conversionService,
             attributeConverterRegistry,
             jsonMapper,
-            sqlJsonColumnMapperProvider);
+            sqlJsonColumnMapperProvider,
+            sqlExceptionMapperList);
         this.schemaTenantResolver = schemaTenantResolver;
         this.schemaHandler = schemaHandler;
         this.connectionOperations = connectionOperations;
@@ -273,7 +277,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
         SqlStoredQuery<Object, ?> storedQuery = resolveSqlInsertAssociation(ctx.repositoryType, runtimeAssociation, persistentEntity, value);
         try {
             new JdbcEntityOperations<>(ctx, childPersistentEntity, child, storedQuery).execute();
-        } catch (Exception e) {
+        } catch (SQLException e) {
             throw new DataAccessException("SQL error executing INSERT: " + e.getMessage(), e);
         }
     }
@@ -288,7 +292,7 @@ public final class DefaultJdbcRepositoryOperations extends AbstractSqlRepository
             JdbcEntitiesOperations<Object> assocOp = new JdbcEntitiesOperations<>(ctx, childPersistentEntity, child, storedQuery);
             assocOp.veto(ctx.persisted::contains);
             assocOp.execute();
-        } catch (Exception e) {
+        } catch (SQLException e) {
             throw new DataAccessException("SQL error executing INSERT: " + e.getMessage(), e);
         }
     }
